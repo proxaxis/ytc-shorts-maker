@@ -1,0 +1,12 @@
+name: ytc-shorts-maker
+
+services:
+
+  # Operation Agent
+  orchestrator:
+    image: proxaxis/orchestrator:latest
+    container_name: ytc_shorts_maker_orchestrator
+    shm_size: "2gb"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/ws
