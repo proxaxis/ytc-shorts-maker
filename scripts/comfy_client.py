@@ -144,11 +144,17 @@ def main():
     prompt_id = r.json()["prompt_id"]
     print(f"queued: prompt_id={prompt_id} seed={args.seed} frames={prompt[WORKFLOWS[args.mode][1]]['inputs']['length']}", flush=True)
 
-    ws = websocket.create_connection(f"{ws_url}?clientId={client_id}", timeout=30)
+    ws = websocket.create_connection(f"{ws_url}?clientId={client_id}", timeout=60)
     deadline = time.time() + args.timeout
     try:
         while time.time() < deadline:
-            msg = json.loads(ws.recv())
+            try:
+                msg = json.loads(ws.recv())
+            except websocket.WebSocketTimeoutException:
+                continue
+            except websocket.WebSocketConnectionClosedException:
+                ws = websocket.create_connection(f"{ws_url}?clientId={client_id}", timeout=60)
+                continue
             if msg["type"] == "status":
                 q = msg["data"]["status"]["exec_info"]["queue_remaining"]
                 print(f"queue_remaining={q}", flush=True)
