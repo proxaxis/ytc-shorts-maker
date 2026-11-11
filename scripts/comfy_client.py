@@ -33,6 +33,7 @@ WORKFLOWS = {
     "t2v": ("workflows/video_minimax_h3_t2v_api.json", "i2v"),
     "i2v": ("workflows/video_minimax_h3_i2v_api.json", "i2v"),
     "r2v": ("workflows/video_minimax_h3_r2v_api.json", "r2v"),
+    "wan": ("workflows/video_wan22_ti2v_api.json", "pos"),
 }
 DEFAULT_TURBO_STEPS = {"t2v": 8, "i2v": 8, "r2v": 4}
 
@@ -53,6 +54,12 @@ def frames_for_seconds(seconds: float) -> int:
     return m + (5 - (m % 17))
 
 
+def wan_frames_for_seconds(seconds: float) -> int:
+    """Snap a duration in seconds to Wan's 4k+1 frame grid at 24fps."""
+    m = max(1, round(seconds * 24))
+    return m + ((1 - m) % 4)
+
+
 def upload_image(base: str, path: Path) -> str:
     """Upload an image to the server's input dir; returns the server-side filename."""
     mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -64,7 +71,26 @@ def upload_image(base: str, path: Path) -> str:
     return f"{info['subfolder']}/{info['name']}" if info.get("subfolder") else info["name"]
 
 
+def build_wan_prompt(args, base: str) -> dict:
+    wf = json.loads((ROOT / WORKFLOWS["wan"][0]).read_text())
+    wf["pos"]["inputs"]["text"] = args.prompt
+    wf["neg"]["inputs"]["text"] = args.negative
+    wf["latent"]["inputs"].update(width=args.width, height=args.height,
+                                  length=wan_frames_for_seconds(args.seconds))
+    wf["sample"]["inputs"]["seed"] = args.seed
+    wf["sample"]["inputs"]["steps"] = args.steps
+    wf.pop("start_img", None)
+    wf["latent"]["inputs"].pop("start_image", None)
+    if args.first_frame:
+        name = upload_image(base, Path(args.first_frame))
+        wf["start_img"] = {"class_type": "LoadImage", "inputs": {"image": name}}
+        wf["latent"]["inputs"]["start_image"] = ["start_img", 0]
+    return wf
+
+
 def build_prompt(args, base: str) -> dict:
+    if args.mode == "wan":
+        return build_wan_prompt(args, base)
     wf_file, cond_key = WORKFLOWS[args.mode]
     wf = json.loads((ROOT / wf_file).read_text())
     cond = wf[cond_key]["inputs"]
@@ -106,7 +132,9 @@ def main():
     p.add_argument("--url", default=os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188"),
                    help="ComfyUI server URL (default: $COMFYUI_URL or http://127.0.0.1:8188)")
     p.add_argument("--prompt", required=True, help="Text prompt (scene, shots, dialogue, SFX, music)")
-    p.add_argument("--first-frame", help="I2V: local image for the first frame")
+    p.add_argument("--negative", default="low quality, blurry, static, distorted, watermark, subtitles, worst quality",
+                   help="wan: negative prompt")
+    p.add_argument("--first-frame", help="i2v/wan: local image for the first frame")
     p.add_argument("--last-frame", help="I2V: local image for the last frame")
     p.add_argument("--ref-image", action="append", default=[],
                    help="R2V: local reference image (repeatable, max 9)")
@@ -128,6 +156,9 @@ def main():
         p.error("--mode r2v requires at least one --ref-image")
     if len(args.ref_image) > 9:
         p.error("max 9 reference images")
+    if args.mode == "wan" and args.turbo:
+        print("note: --turbo is H3-only; ignored for wan", file=sys.stderr)
+        args.turbo = False
     if args.seed is None:
         args.seed = int.from_bytes(os.urandom(8), "big")
 
@@ -142,7 +173,8 @@ def main():
     r = requests.post(f"{base}/prompt", json={"prompt": prompt, "client_id": client_id}, timeout=30)
     r.raise_for_status()
     prompt_id = r.json()["prompt_id"]
-    print(f"queued: prompt_id={prompt_id} seed={args.seed} frames={prompt[WORKFLOWS[args.mode][1]]['inputs']['length']}", flush=True)
+    len_node = "latent" if args.mode == "wan" else WORKFLOWS[args.mode][1]
+    print(f"queued: prompt_id={prompt_id} seed={args.seed} frames={prompt[len_node]['inputs']['length']}", flush=True)
 
     ws = websocket.create_connection(f"{ws_url}?clientId={client_id}", timeout=60)
     deadline = time.time() + args.timeout

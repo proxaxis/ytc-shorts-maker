@@ -47,10 +47,12 @@ case "$cmd" in
       echo "[colab] session '$SESSION' already exists"
     fi
     sed "s/@MODES@/$MODES/" colab/remote_setup.py > /tmp/h3_remote_setup.py
-    echo "[colab] remote setup: ComfyUI install + weights (~42GB, slow on first run)..."
+    echo "[colab] remote setup: ComfyUI install + weights (slow on first run)..."
     colab exec -s "$SESSION" --timeout 7200 -f /tmp/h3_remote_setup.py | tee /tmp/h3_setup.log
-    url="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/h3_setup.log | tail -1)"
-    [ -n "$url" ] || { echo "[colab] tunnel URL not found in setup output" >&2; exit 1; }
+    echo "[colab] launching ComfyUI via ssh (escapes the jupyter memcg cap)..."
+    colab ssh -s "$SESSION" -- bash /content/launch.sh | tee /tmp/h3_launch.log
+    url="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/h3_launch.log | tail -1)"
+    [ -n "$url" ] || { echo "[colab] tunnel URL not found" >&2; exit 1; }
     [ -f .env ] || cp .env.example .env
     sed -i '/^COMFYUI_URL=/d' .env
     echo "COMFYUI_URL=$url" >> .env

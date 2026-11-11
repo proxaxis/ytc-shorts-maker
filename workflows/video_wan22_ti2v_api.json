@@ -1,0 +1,86 @@
+{
+  "unet": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.2_ti2v_5B_fp16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "shift": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": { "model": ["unet", 0], "shift": 8.0 }
+  },
+  "clip": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    }
+  },
+  "vae": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "wan2.2_vae.safetensors" }
+  },
+  "pos": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["clip", 0],
+      "text": "A cinematic shot of a cat walking across a sunny windowsill"
+    }
+  },
+  "neg": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["clip", 0],
+      "text": "low quality, blurry, static, distorted, watermark, subtitles, worst quality"
+    }
+  },
+  "start_img": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "example.png" }
+  },
+  "latent": {
+    "class_type": "Wan22ImageToVideoLatent",
+    "inputs": {
+      "vae": ["vae", 0],
+      "width": 1280,
+      "height": 704,
+      "length": 121,
+      "batch_size": 1,
+      "start_image": ["start_img", 0]
+    }
+  },
+  "sample": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["shift", 0],
+      "positive": ["pos", 0],
+      "negative": ["neg", 0],
+      "latent_image": ["latent", 0],
+      "seed": 1,
+      "steps": 20,
+      "cfg": 5.0,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1.0
+    }
+  },
+  "dec": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["sample", 0], "vae": ["vae", 0] }
+  },
+  "video": {
+    "class_type": "CreateVideo",
+    "inputs": { "images": ["dec", 0], "fps": 24.0 }
+  },
+  "save": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": ["video", 0],
+      "filename_prefix": "video/Wan22",
+      "format": "auto",
+      "codec": "auto"
+    }
+  }
+}
